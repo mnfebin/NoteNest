@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
   BookOpen,
   Mail,
@@ -9,19 +9,22 @@ import {
   LogIn,
   AlertCircle,
   CheckCircle2,
-  Sparkles
+  Sparkles,
+  ShieldCheck
 } from "lucide-react";
 import { useNotes } from "../context/NotesContext";
 import Button from "../components/Button";
 
 export default function Login() {
   const navigate = useNavigate();
-  const { showToast } = useNotes();
+  const location = useLocation();
+  const { login, showToast } = useNotes();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState({});
+  const [serverError, setServerError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [loginSuccess, setLoginSuccess] = useState(false);
 
@@ -43,25 +46,41 @@ export default function Login() {
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    setServerError("");
     if (!validate()) return;
 
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const data = await login(email, password);
       setLoginSuccess(true);
-      showToast("Signed in successfully (Demo Session)!", "success");
       setTimeout(() => {
-        navigate("/notes");
-      }, 1000);
-    }, 600);
+        if (data.user?.role === "ADMIN") {
+          navigate("/admin");
+        } else {
+          navigate("/notes");
+        }
+      }, 700);
+    } catch (err) {
+      setServerError(err.message || "Failed to sign in. Please verify your credentials.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleQuickFill = () => {
+  const handleQuickFillStudent = () => {
     setEmail("alex.rivera@college.edu");
     setPassword("StudentPass2026!");
     setErrors({});
+    setServerError("");
+  };
+
+  const handleQuickFillAdmin = () => {
+    setEmail("admin@notenest.edu");
+    setPassword("AdminPass2026!");
+    setErrors({});
+    setServerError("");
   };
 
   return (
@@ -114,22 +133,43 @@ export default function Login() {
             }}
           >
             <CheckCircle2 size={18} />
-            <span>Success! Redirecting to Explore Notes...</span>
+            <span>Success! Redirecting to dashboard...</span>
           </div>
         )}
 
-        {/* Demo fill button */}
-        <div style={{ marginBottom: "1.5rem", textAlign: "center" }}>
+        {serverError && (
+          <div
+            style={{
+              padding: "0.85rem 1rem",
+              background: "var(--danger-light)",
+              border: "1px solid var(--danger-border)",
+              borderRadius: "var(--radius-md)",
+              color: "var(--danger)",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              marginBottom: "1.5rem",
+              fontSize: "0.875rem",
+              fontWeight: 600
+            }}
+          >
+            <AlertCircle size={18} />
+            <span>{serverError}</span>
+          </div>
+        )}
+
+        {/* Demo fill buttons */}
+        <div style={{ marginBottom: "1.5rem", display: "flex", justifyContent: "center", gap: "0.5rem", flexWrap: "wrap" }}>
           <button
             type="button"
-            onClick={handleQuickFill}
+            onClick={handleQuickFillStudent}
             style={{
               fontSize: "0.8rem",
               fontWeight: 600,
               color: "var(--primary)",
               background: "var(--primary-light)",
               border: "1px dashed var(--primary-border)",
-              padding: "0.4rem 0.85rem",
+              padding: "0.4rem 0.75rem",
               borderRadius: "var(--radius-full)",
               cursor: "pointer",
               display: "inline-flex",
@@ -137,7 +177,26 @@ export default function Login() {
               gap: "0.35rem"
             }}
           >
-            <Sparkles size={13} /> Fill Demo Student Credentials
+            <Sparkles size={13} /> Fill Student (Alex)
+          </button>
+          <button
+            type="button"
+            onClick={handleQuickFillAdmin}
+            style={{
+              fontSize: "0.8rem",
+              fontWeight: 600,
+              color: "#7C3AED",
+              background: "#F5F3FF",
+              border: "1px dashed #DDD6FE",
+              padding: "0.4rem 0.75rem",
+              borderRadius: "var(--radius-full)",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.35rem"
+            }}
+          >
+            <ShieldCheck size={13} /> Fill Admin Account
           </button>
         </div>
 
@@ -158,6 +217,7 @@ export default function Login() {
                 onChange={(e) => {
                   setEmail(e.target.value);
                   if (errors.email) setErrors((prev) => ({ ...prev, email: "" }));
+                  if (serverError) setServerError("");
                 }}
               />
             </div>
@@ -174,7 +234,10 @@ export default function Login() {
               <label className="form-label" htmlFor="login-password">
                 Password
               </label>
-              <span style={{ fontSize: "0.775rem", color: "var(--primary)", cursor: "pointer" }} onClick={() => showToast("Password reset demo link sent", "info")}>
+              <span
+                style={{ fontSize: "0.775rem", color: "var(--primary)", cursor: "pointer" }}
+                onClick={() => showToast("Default demo password: StudentPass2026! or AdminPass2026!", "info")}
+              >
                 Forgot?
               </span>
             </div>
@@ -188,6 +251,7 @@ export default function Login() {
                 onChange={(e) => {
                   setPassword(e.target.value);
                   if (errors.password) setErrors((prev) => ({ ...prev, password: "" }));
+                  if (serverError) setServerError("");
                 }}
                 style={{ paddingRight: "2.75rem" }}
               />

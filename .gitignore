@@ -13,6 +13,14 @@ dist-ssr/
 .env.*.local
 !.env.example
 
+# Local databases and uploads
+pg_data/
+**/pg_data/
+local_db/
+**/local_db/
+uploads/
+**/uploads/
+
 # Logs
 logs/
 *.log

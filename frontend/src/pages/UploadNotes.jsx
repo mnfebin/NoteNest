@@ -6,8 +6,6 @@ import {
   CheckCircle2,
   AlertCircle,
   X,
-  FileCheck,
-  Sparkles,
   ArrowRight,
   Info
 } from "lucide-react";
@@ -132,7 +130,7 @@ export default function UploadNotes() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!validate()) {
@@ -140,29 +138,37 @@ export default function UploadNotes() {
     }
 
     setIsSubmitting(true);
+    setErrors((prev) => ({ ...prev, server: "" }));
 
-    // Simulate upload latency
-    setTimeout(() => {
+    try {
       const concepts = [
         formData.keyConcept1,
         formData.keyConcept2,
         formData.keyConcept3
       ].filter(Boolean);
 
-      const created = addNote({
-        title: formData.title,
-        description: formData.description,
-        subject: formData.subject,
-        semester: formData.semester,
-        topic: formData.topic,
-        fileName: selectedFile.name,
-        fileSize: selectedFile.size,
-        keyConcepts: concepts.length > 0 ? concepts : undefined
+      const uploadData = new FormData();
+      uploadData.append("file", selectedFile.raw);
+      uploadData.append("title", formData.title.trim());
+      uploadData.append("description", formData.description.trim());
+      uploadData.append("subject", formData.subject);
+      uploadData.append("semester", formData.semester);
+      uploadData.append("topic", formData.topic.trim());
+      concepts.forEach((concept) => {
+        uploadData.append("keyConcepts", concept);
       });
+      uploadData.append("tags", `${formData.subject}, ${formData.topic}`);
 
-      setIsSubmitting(false);
+      const created = await addNote(uploadData);
       setUploadSuccess(created);
-    }, 700);
+    } catch (err) {
+      setErrors((prev) => ({
+        ...prev,
+        server: err.message || "Failed to upload note. Please verify file and inputs."
+      }));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const availableSubjects = SUBJECTS.filter((s) => s !== "All Subjects");
@@ -259,6 +265,27 @@ export default function UploadNotes() {
       ) : (
         /* Upload Form */
         <form onSubmit={handleSubmit} className="card" style={{ padding: "2rem", background: "#FFFFFF" }}>
+          {errors.server && (
+            <div
+              style={{
+                padding: "0.85rem 1rem",
+                background: "var(--danger-light)",
+                border: "1px solid var(--danger-border)",
+                borderRadius: "var(--radius-md)",
+                color: "var(--danger)",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                marginBottom: "1.5rem",
+                fontSize: "0.875rem",
+                fontWeight: 600
+              }}
+            >
+              <AlertCircle size={18} />
+              <span>{errors.server}</span>
+            </div>
+          )}
+
           {/* Note Title */}
           <div className="form-group">
             <label className="form-label" htmlFor="note-title">

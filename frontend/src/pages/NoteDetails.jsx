@@ -21,16 +21,20 @@ import { useNotes } from "../context/NotesContext";
 import { SUBJECT_METADATA } from "../data/notes";
 import Button from "../components/Button";
 import Modal from "../components/Modal";
-import NoteCard from "../components/NoteCard";
 import EmptyState from "../components/EmptyState";
+import { api } from "../services/api";
 
 export default function NoteDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { notes, isBookmarked, toggleBookmark, downloadNote, addReport, showToast } = useNotes();
 
-  // Find note
-  const note = notes.find((n) => n.id === id);
+  const [fetchedNote, setFetchedNote] = useState(null);
+  const [isLoadingNote, setIsLoadingNote] = useState(false);
+
+  // Find note from context or fetch directly from API
+  const contextNote = notes.find((n) => n.id === id);
+  const note = contextNote || fetchedNote;
 
   // Report Modal state
   const [isReportOpen, setIsReportOpen] = useState(false);
@@ -38,8 +42,35 @@ export default function NoteDetails() {
   const [reportDetails, setReportDetails] = useState("");
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
 
+  // If note not in local context, fetch from backend API
+  React.useEffect(() => {
+    if (!contextNote && id) {
+      setIsLoadingNote(true);
+      api.notes
+        .get(id)
+        .then((res) => {
+          if (res?.data) {
+            setFetchedNote(res.data);
+          }
+        })
+        .catch((err) => {
+          console.warn("Could not fetch note details:", err.message);
+        })
+        .finally(() => {
+          setIsLoadingNote(false);
+        });
+    }
+  }, [contextNote, id]);
+
   // If note not found
   if (!note) {
+    if (isLoadingNote) {
+      return (
+        <div className="container" style={{ paddingTop: "3rem", textAlign: "center" }}>
+          <p style={{ color: "var(--text-secondary)", fontSize: "1.1rem" }}>Loading study note details...</p>
+        </div>
+      );
+    }
     return (
       <div className="container" style={{ paddingTop: "2rem" }}>
         <EmptyState
@@ -70,21 +101,24 @@ export default function NoteDetails() {
     showToast("Note link copied to clipboard!", "info");
   };
 
-  const handleReportSubmit = (e) => {
+  const handleReportSubmit = async (e) => {
     e.preventDefault();
     setIsSubmittingReport(true);
 
-    setTimeout(() => {
-      addReport({
+    try {
+      await addReport({
         noteId: note.id,
         noteTitle: note.title,
         reason: reportReason,
         details: reportDetails
       });
-      setIsSubmittingReport(false);
       setIsReportOpen(false);
       setReportDetails("");
-    }, 400);
+    } catch (_err) {
+      // Toast already shown in context
+    } finally {
+      setIsSubmittingReport(false);
+    }
   };
 
   return (

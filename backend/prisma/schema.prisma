@@ -1,0 +1,108 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum NoteStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWED
+  RESOLVED
+  DISMISSED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  passwordHash String
+  role         Role       @default(USER)
+  semester     Int?       @default(4)
+  branch       String?    @default("Computer Science & Engineering")
+  college      String?    @default("National Institute of Technology")
+  studentId    String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  notes        Note[]
+  bookmarks    Bookmark[]
+  reports      Report[]
+
+  @@index([email])
+}
+
+model Note {
+  id            String      @id @default(cuid())
+  title         String
+  description   String
+  subject       String
+  semester      Int
+  topic         String
+  uploaderId    String
+  uploader      User        @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  fileName      String
+  fileUrl       String
+  fileSize      String
+  fileType      String      @default("PDF")
+  downloadCount Int         @default(0)
+  status        NoteStatus  @default(APPROVED)
+  previewPages  Int         @default(12)
+  tags          String[]    @default([])
+  keyConcepts   String[]    @default([])
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  bookmarks     Bookmark[]
+  reports       Report[]
+
+  @@index([subject])
+  @@index([semester])
+  @@index([status])
+  @@index([createdAt])
+  @@index([downloadCount])
+  @@index([uploaderId])
+}
+
+model Bookmark {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  noteId    String
+  note      Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, noteId])
+  @@index([userId])
+  @@index([noteId])
+}
+
+model Report {
+  id          String       @id @default(cuid())
+  noteId      String
+  note        Note         @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  reporterId  String
+  reporter    User         @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  reason      String
+  description String
+  status      ReportStatus @default(OPEN)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([noteId])
+  @@index([reporterId])
+  @@index([status])
+}

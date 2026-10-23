@@ -28,11 +28,24 @@ export default function Profile() {
     myUploadedNotes,
     bookmarks,
     deleteNote,
-    showToast
+    showToast,
+    logout,
+    updateUserProfile,
+    user
   } = useNotes();
 
   // Delete confirmation modal state
   const [noteToDelete, setNoteToDelete] = useState(null);
+
+  // Edit Profile modal state
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: profile?.name || "",
+    branch: profile?.branch || "",
+    semester: profile?.semester || 4,
+    college: profile?.college || ""
+  });
+  const [isUpdating, setIsUpdating] = useState(false);
 
   // Total downloads received by this user's uploads
   const totalMyDownloads = myUploadedNotes.reduce((sum, n) => sum + (n.downloads || 0), 0);
@@ -44,9 +57,22 @@ export default function Profile() {
     }
   };
 
-  const handleLogout = () => {
-    showToast("Logged out of student session (Demo Mode)", "info");
+  const handleLogout = async () => {
+    await logout();
     navigate("/login");
+  };
+
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    setIsUpdating(true);
+    try {
+      await updateUserProfile(editForm);
+      setIsEditOpen(false);
+    } catch (err) {
+      // error toast handled in context
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
   const initials = (profile?.name || "Alex Rivera")
@@ -122,7 +148,23 @@ export default function Profile() {
           </div>
 
           {/* Actions */}
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+            <Button
+              variant="outline"
+              size="md"
+              icon={User}
+              onClick={() => {
+                setEditForm({
+                  name: profile?.name || "",
+                  branch: profile?.branch || "",
+                  semester: profile?.semester || 4,
+                  college: profile?.college || ""
+                });
+                setIsEditOpen(true);
+              }}
+            >
+              Edit Profile
+            </Button>
             <Button
               variant="primary"
               size="md"
@@ -268,6 +310,81 @@ export default function Profile() {
             </p>
           </div>
         </div>
+      </Modal>
+
+      {/* Edit Profile Modal */}
+      <Modal
+        isOpen={isEditOpen}
+        onClose={() => setIsEditOpen(false)}
+        title="Edit Student Profile"
+        footer={
+          <>
+            <Button
+              variant="outline"
+              size="md"
+              onClick={() => setIsEditOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              disabled={isUpdating}
+              onClick={handleSaveProfile}
+            >
+              {isUpdating ? "Saving..." : "Save Changes"}
+            </Button>
+          </>
+        }
+      >
+        <form onSubmit={handleSaveProfile}>
+          <div className="form-group">
+            <label className="form-label" htmlFor="edit-name">Full Name</label>
+            <input
+              id="edit-name"
+              type="text"
+              className="form-input"
+              value={editForm.name}
+              onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label" htmlFor="edit-branch">Academic Department / Branch</label>
+            <input
+              id="edit-branch"
+              type="text"
+              className="form-input"
+              value={editForm.branch}
+              onChange={(e) => setEditForm({ ...editForm, branch: e.target.value })}
+            />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+            <div className="form-group">
+              <label className="form-label" htmlFor="edit-semester">Current Semester</label>
+              <select
+                id="edit-semester"
+                className="form-select"
+                value={editForm.semester}
+                onChange={(e) => setEditForm({ ...editForm, semester: e.target.value })}
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((sem) => (
+                  <option key={sem} value={sem}>Semester {sem}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="edit-college">Institution / College</label>
+              <input
+                id="edit-college"
+                type="text"
+                className="form-input"
+                value={editForm.college}
+                onChange={(e) => setEditForm({ ...editForm, college: e.target.value })}
+              />
+            </div>
+          </div>
+        </form>
       </Modal>
     </div>
   );

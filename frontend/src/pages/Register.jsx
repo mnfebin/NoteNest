@@ -18,7 +18,7 @@ import Button from "../components/Button";
 
 export default function Register() {
   const navigate = useNavigate();
-  const { showToast } = useNotes();
+  const { register, showToast } = useNotes();
 
   const [formData, setFormData] = useState({
     fullName: "",
@@ -30,6 +30,7 @@ export default function Register() {
 
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState({});
+  const [serverError, setServerError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [registerSuccess, setRegisterSuccess] = useState(false);
 
@@ -38,6 +39,9 @@ export default function Register() {
     setFormData((prev) => ({ ...prev, [name]: value }));
     if (errors[name]) {
       setErrors((prev) => ({ ...prev, [name]: "" }));
+    }
+    if (serverError) {
+      setServerError("");
     }
   };
 
@@ -67,19 +71,29 @@ export default function Register() {
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    setServerError("");
     if (!validate()) return;
 
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      await register({
+        name: formData.fullName.trim(),
+        email: formData.email.trim().toLowerCase(),
+        password: formData.password,
+        semester: parseInt(formData.semester, 10) || 4
+      });
+
       setRegisterSuccess(true);
-      showToast("Account created successfully (Demo Mode)!", "success");
       setTimeout(() => {
-        navigate("/login");
-      }, 1200);
-    }, 600);
+        navigate("/notes");
+      }, 900);
+    } catch (err) {
+      setServerError(err.message || "Failed to create account. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -132,7 +146,28 @@ export default function Register() {
             }}
           >
             <CheckCircle2 size={18} />
-            <span>Registration successful! Redirecting to login...</span>
+            <span>Registration successful! Entering NoteNest...</span>
+          </div>
+        )}
+
+        {serverError && (
+          <div
+            style={{
+              padding: "0.85rem 1rem",
+              background: "var(--danger-light)",
+              border: "1px solid var(--danger-border)",
+              borderRadius: "var(--radius-md)",
+              color: "var(--danger)",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              marginBottom: "1.5rem",
+              fontSize: "0.875rem",
+              fontWeight: 600
+            }}
+          >
+            <AlertCircle size={18} />
+            <span>{serverError}</span>
           </div>
         )}
 

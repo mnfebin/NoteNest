@@ -1,15 +1,8 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { INITIAL_NOTES, INITIAL_REPORTS } from "../data/notes";
+import { api, getToken, setToken, clearToken } from "../services/api";
 
 const NotesContext = createContext(null);
-
-const STORAGE_KEYS = {
-  NOTES: "notenest_notes_v1",
-  BOOKMARKS: "notenest_bookmarks_v1",
-  USER_UPLOADS: "notenest_user_uploads_v1",
-  REPORTS: "notenest_reports_v1",
-  USER_PROFILE: "notenest_profile_v1"
-};
 
 export const DEFAULT_PROFILE = {
   name: "Alex Rivera",
@@ -17,281 +10,381 @@ export const DEFAULT_PROFILE = {
   branch: "Computer Science & Engineering",
   semester: 4,
   college: "National Institute of Technology",
-  studentId: "CSE-2024-082"
+  studentId: "CSE-2024-082",
+  role: "USER"
 };
 
 export function NotesProvider({ children }) {
-  // 1. All Notes state with rigorous fallback
-  const [notes, setNotes] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.NOTES);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.warn("Failed to load notes from localStorage, falling back to seed", e);
-    }
-    return INITIAL_NOTES;
-  });
+  // 1. Authentication & Profile State
+  const [token, setTokenState] = useState(() => getToken());
+  const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(DEFAULT_PROFILE);
 
-  // 2. Bookmarks state (array of note IDs)
-  const [bookmarks, setBookmarks] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.BOOKMARKS);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.warn("Failed to load bookmarks from localStorage", e);
-    }
-    return ["note-1", "note-3"];
-  });
+  // 2. Data states
+  const [notes, setNotes] = useState(INITIAL_NOTES);
+  const [bookmarks, setBookmarks] = useState(["note-1", "note-3"]);
+  const [myUploadedNotes, setMyUploadedNotes] = useState([]);
+  const [reports, setReports] = useState(INITIAL_REPORTS);
+  const [isLoading, setIsLoading] = useState(false);
 
-  // 3. User upload IDs
-  const [userUploadIds, setUserUploadIds] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.USER_UPLOADS);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.warn("Failed to load user uploads from localStorage", e);
-    }
-    return ["note-3"];
-  });
-
-  // 4. Reports state for Admin Dashboard
-  const [reports, setReports] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.REPORTS);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.warn("Failed to load reports from localStorage", e);
-    }
-    return INITIAL_REPORTS;
-  });
-
-  // 5. User Profile state
-  const [profile, setProfile] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.USER_PROFILE);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed === "object" && parsed.name) {
-          return { ...DEFAULT_PROFILE, ...parsed };
-        }
-      }
-    } catch (e) {
-      console.warn("Failed to load profile", e);
-    }
-    return DEFAULT_PROFILE;
-  });
-
-  // 6. Global Toast notification feedback
+  // 3. Global Toast feedback
   const [toast, setToast] = useState(null);
 
-  // Sync state with localStorage safely
-  useEffect(() => {
-    try {
-      if (Array.isArray(notes)) {
-        localStorage.setItem(STORAGE_KEYS.NOTES, JSON.stringify(notes));
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }, [notes]);
-
-  useEffect(() => {
-    try {
-      if (Array.isArray(bookmarks)) {
-        localStorage.setItem(STORAGE_KEYS.BOOKMARKS, JSON.stringify(bookmarks));
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }, [bookmarks]);
-
-  useEffect(() => {
-    try {
-      if (Array.isArray(userUploadIds)) {
-        localStorage.setItem(STORAGE_KEYS.USER_UPLOADS, JSON.stringify(userUploadIds));
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }, [userUploadIds]);
-
-  useEffect(() => {
-    try {
-      if (Array.isArray(reports)) {
-        localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(reports));
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }, [reports]);
-
-  // Toast helper
-  const showToast = (message, type = "success") => {
+  const showToast = useCallback((message, type = "success") => {
     setToast({ id: Date.now(), message, type });
     setTimeout(() => {
       setToast(null);
     }, 3500);
+  }, []);
+
+  const hideToast = useCallback(() => setToast(null), []);
+
+  // Fetch approved notes from backend API
+  const fetchNotes = useCallback(async (filters = {}) => {
+    try {
+      setIsLoading(true);
+      const res = await api.notes.list(filters);
+      if (res?.success && Array.isArray(res.data) && res.data.length > 0) {
+        setNotes(res.data);
+      }
+    } catch (err) {
+      console.warn("Backend notes fetch note: falling back to seeded dataset", err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Fetch bookmarks for current user
+  const fetchBookmarks = useCallback(async () => {
+    if (!getToken()) return;
+    try {
+      const res = await api.bookmarks.list();
+      if (res?.success && Array.isArray(res.data)) {
+        const ids = res.data.map((n) => n.id);
+        setBookmarks(ids);
+      }
+    } catch (err) {
+      console.warn("Failed to fetch bookmarks:", err.message);
+    }
+  }, []);
+
+  // Fetch user uploads
+  const fetchMyUploads = useCallback(async () => {
+    if (!getToken()) return;
+    try {
+      const res = await api.notes.getMine();
+      if (res?.success && Array.isArray(res.data)) {
+        setMyUploadedNotes(res.data);
+      }
+    } catch (err) {
+      console.warn("Failed to fetch my uploaded notes:", err.message);
+    }
+  }, []);
+
+  // Fetch admin reports
+  const fetchReports = useCallback(async () => {
+    if (!getToken()) return;
+    try {
+      const res = await api.admin.getReports();
+      if (res?.success && Array.isArray(res.data)) {
+        setReports(res.data);
+      }
+    } catch (_err) {
+      // ignore if not admin
+    }
+  }, []);
+
+  // Initialize session from token
+  useEffect(() => {
+    async function initAuth() {
+      const savedToken = getToken();
+      if (savedToken) {
+        try {
+          const res = await api.auth.getMe();
+          if (res?.success && res.data) {
+            setUser(res.data);
+            setProfile((prev) => ({ ...prev, ...res.data }));
+          }
+        } catch (err) {
+          console.warn("Session expired or invalid, clearing token:", err.message);
+          clearToken();
+          setTokenState(null);
+          setUser(null);
+        }
+      }
+    }
+
+    initAuth();
+    fetchNotes();
+  }, [fetchNotes]);
+
+  // Synchronize authenticated data when user changes
+  useEffect(() => {
+    if (user) {
+      fetchBookmarks();
+      fetchMyUploads();
+      if (user.role === "ADMIN") {
+        fetchReports();
+      }
+    } else {
+      setMyUploadedNotes([]);
+    }
+  }, [user, fetchBookmarks, fetchMyUploads, fetchReports]);
+
+  // User Login Action
+  const login = async (email, password) => {
+    const res = await api.auth.login({ email, password });
+    if (res?.success && res.data) {
+      setToken(res.data.token);
+      setTokenState(res.data.token);
+      setUser(res.data.user);
+      setProfile((prev) => ({ ...prev, ...res.data.user }));
+      showToast(`Welcome back, ${res.data.user.name}!`, "success");
+      return res.data;
+    }
+    throw new Error(res?.message || "Login failed");
   };
 
-  const hideToast = () => setToast(null);
+  // User Register Action
+  const register = async (userData) => {
+    const res = await api.auth.register(userData);
+    if (res?.success && res.data) {
+      setToken(res.data.token);
+      setTokenState(res.data.token);
+      setUser(res.data.user);
+      setProfile((prev) => ({ ...prev, ...res.data.user }));
+      showToast("Account created successfully! Welcome to NoteNest.", "success");
+      return res.data;
+    }
+    throw new Error(res?.message || "Registration failed");
+  };
+
+  // User Logout Action
+  const logout = async () => {
+    try {
+      await api.auth.logout();
+    } catch (_e) {
+      // ignore
+    }
+    clearToken();
+    setTokenState(null);
+    setUser(null);
+    setProfile(DEFAULT_PROFILE);
+    setBookmarks([]);
+    setMyUploadedNotes([]);
+    showToast("Signed out successfully", "info");
+  };
+
+  // Update profile
+  const updateUserProfile = async (updateData) => {
+    const res = await api.users.updateProfile(updateData);
+    if (res?.success && res.data) {
+      setUser((prev) => ({ ...prev, ...res.data }));
+      setProfile((prev) => ({ ...prev, ...res.data }));
+      showToast("Profile updated successfully", "success");
+      return res.data;
+    }
+    throw new Error(res?.message || "Failed to update profile");
+  };
 
   // Toggle Bookmark
-  const toggleBookmark = (noteId) => {
-    setBookmarks((prev) => {
-      const list = Array.isArray(prev) ? prev : [];
-      const exists = list.includes(noteId);
+  const toggleBookmark = async (noteId) => {
+    const exists = bookmarks.includes(noteId);
+
+    if (!user) {
+      // Local optimistic toggle for guest browsing demo
       if (exists) {
+        setBookmarks((prev) => prev.filter((id) => id !== noteId));
         showToast("Removed from My Library", "info");
-        return list.filter((id) => id !== noteId);
       } else {
+        setBookmarks((prev) => [...prev, noteId]);
         showToast("Saved to My Library", "success");
-        return [...list, noteId];
       }
-    });
+      return;
+    }
+
+    try {
+      if (exists) {
+        setBookmarks((prev) => prev.filter((id) => id !== noteId));
+        await api.bookmarks.remove(noteId);
+        showToast("Removed from My Library", "info");
+      } else {
+        setBookmarks((prev) => [...prev, noteId]);
+        await api.bookmarks.add(noteId);
+        showToast("Saved to My Library", "success");
+      }
+    } catch (err) {
+      // Rollback on failure
+      fetchBookmarks();
+      showToast(err.message || "Failed to update bookmark", "danger");
+    }
   };
 
   const isBookmarked = (noteId) => Array.isArray(bookmarks) && bookmarks.includes(noteId);
 
   // Upload new note
-  const addNote = (newNoteData) => {
-    const id = "note-" + Date.now();
-    const safeName = profile?.name || DEFAULT_PROFILE.name;
-    const safeEmail = profile?.email || DEFAULT_PROFILE.email;
+  const addNote = async (newNotePayload) => {
+    try {
+      let created;
 
-    const createdNote = {
-      id,
-      title: (newNoteData.title || "Untitled Note").trim(),
-      description: (newNoteData.description || "No description provided.").trim(),
-      subject: newNoteData.subject || "Computer Science",
-      semester: Number(newNoteData.semester) || 4,
-      topic: (newNoteData.topic || "General").trim(),
-      uploader: safeName,
-      uploaderEmail: safeEmail,
-      uploadDate: new Date().toISOString().split("T")[0],
-      fileType: "PDF",
-      fileSize: newNoteData.fileSize || "3.5 MB",
-      fileName: newNoteData.fileName || "Study_Notes.pdf",
-      downloads: 0,
-      previewPages: Math.floor(Math.random() * 15) + 6,
-      tags: [(newNoteData.topic || "Notes").trim(), newNoteData.subject || "CSE"],
-      keyConcepts: newNoteData.keyConcepts || [
-        "Core exam-focused definitions and formulas",
-        "Key module architectures and diagrams",
-        "Solved previous year question patterns"
-      ]
-    };
+      // Check if already FormData or plain object
+      if (newNotePayload instanceof FormData) {
+        const res = await api.notes.upload(newNotePayload);
+        created = res.data;
+      } else {
+        // Plain object: if file exists, construct FormData
+        const formData = new FormData();
+        Object.entries(newNotePayload).forEach(([k, v]) => {
+          if (k === "file" && v) {
+            formData.append("file", v);
+          } else if (v !== undefined && v !== null) {
+            formData.append(k, typeof v === "object" ? JSON.stringify(v) : v);
+          }
+        });
+        const res = await api.notes.upload(formData);
+        created = res.data;
+      }
 
-    setNotes((prev) => [createdNote, ...(Array.isArray(prev) ? prev : [])]);
-    setUserUploadIds((prev) => [id, ...(Array.isArray(prev) ? prev : [])]);
-    showToast(`"${createdNote.title}" uploaded successfully!`, "success");
-    return createdNote;
+      // Add to local state
+      setNotes((prev) => [created, ...prev]);
+      setMyUploadedNotes((prev) => [created, ...prev]);
+      showToast(
+        created.status === "APPROVED"
+          ? `"${created.title}" uploaded and published successfully!`
+          : `"${created.title}" uploaded! Pending review by administrator.`,
+        "success"
+      );
+      return created;
+    } catch (err) {
+      showToast(err.message || "Failed to upload note", "danger");
+      throw err;
+    }
   };
 
   // Delete note
-  const deleteNote = (noteId) => {
-    setNotes((prev) => (Array.isArray(prev) ? prev.filter((n) => n.id !== noteId) : []));
-    setBookmarks((prev) => (Array.isArray(prev) ? prev.filter((id) => id !== noteId) : []));
-    setUserUploadIds((prev) => (Array.isArray(prev) ? prev.filter((id) => id !== noteId) : []));
-    setReports((prev) => (Array.isArray(prev) ? prev.filter((r) => r.noteId !== noteId) : []));
-    showToast("Note deleted successfully", "info");
+  const deleteNote = async (noteId) => {
+    try {
+      await api.notes.delete(noteId);
+      setNotes((prev) => prev.filter((n) => n.id !== noteId));
+      setBookmarks((prev) => prev.filter((id) => id !== noteId));
+      setMyUploadedNotes((prev) => prev.filter((n) => n.id !== noteId));
+      setReports((prev) => prev.filter((r) => r.noteId !== noteId));
+      showToast("Note deleted successfully", "info");
+    } catch (err) {
+      showToast(err.message || "Failed to delete note", "danger");
+      throw err;
+    }
   };
 
   // Add report
-  const addReport = (reportData) => {
-    const newReport = {
-      id: "rep-" + Date.now(),
-      noteId: reportData.noteId,
-      noteTitle: reportData.noteTitle,
-      reason: reportData.reason,
-      details: reportData.details || "No additional comments provided.",
-      reporter: profile?.email || DEFAULT_PROFILE.email,
-      date: new Date().toISOString().split("T")[0],
-      status: "Pending"
-    };
-
-    setReports((prev) => [newReport, ...(Array.isArray(prev) ? prev : [])]);
-    showToast("Report submitted to administrators. Thank you!", "info");
-    return newReport;
+  const addReport = async (reportData) => {
+    try {
+      const res = await api.reports.create({
+        noteId: reportData.noteId,
+        reason: reportData.reason,
+        description: reportData.details || reportData.description
+      });
+      const newReport = res.data;
+      setReports((prev) => [newReport, ...prev]);
+      showToast("Report submitted to administrators. Thank you!", "info");
+      return newReport;
+    } catch (err) {
+      showToast(err.message || "Failed to submit report", "danger");
+      throw err;
+    }
   };
 
-  // Resolve or dismiss report
-  const dismissReport = (reportId) => {
-    setReports((prev) => (Array.isArray(prev) ? prev.filter((r) => r.id !== reportId) : []));
-    showToast("Report dismissed", "info");
+  // Dismiss / resolve report (Admin)
+  const dismissReport = async (reportId) => {
+    try {
+      await api.admin.updateReportStatus(reportId, "DISMISSED");
+      setReports((prev) => prev.filter((r) => r.id !== reportId));
+      showToast("Report dismissed", "info");
+    } catch (err) {
+      showToast(err.message || "Failed to dismiss report", "danger");
+    }
   };
 
-  // Download simulation
-  const downloadNote = (note) => {
+  // Download note
+  const downloadNote = async (note) => {
     if (!note) return;
+
+    // Optimistically increment download count
     setNotes((prev) =>
-      (Array.isArray(prev) ? prev : []).map((n) =>
+      prev.map((n) =>
         n.id === note.id ? { ...n, downloads: (n.downloads || 0) + 1 } : n
       )
     );
 
-    const dummyContent = `NoteNest Academic Study Material\n=================================\n\nTitle: ${note.title}\nSubject: ${note.subject} (Semester ${note.semester})\nTopic: ${note.topic}\nUploader: ${note.uploader} (${note.uploaderEmail || "Verified Student"})\nUpload Date: ${note.uploadDate}\n\nKey Concepts:\n${(note.keyConcepts || []).map((c, i) => `${i + 1}. ${c}`).join("\n")}\n\nSummary:\n${note.description}\n\n---------------------------------\nDownloaded via NoteNest — Student Notes Sharing Platform\nKeep learning and sharing!`;
+    try {
+      const res = await api.notes.download(note.id);
+      const downloadUrl = res?.data?.downloadUrl || note.fileUrl;
 
-    const blob = new Blob([dummyContent], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${(note.title || "Note").replace(/[^a-zA-Z0-9_-]/g, "_")}_NoteNest.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+      if (downloadUrl && downloadUrl.startsWith("http")) {
+        // Trigger browser download via window/link
+        const link = document.createElement("a");
+        link.href = downloadUrl;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.download = note.fileName || `${note.title.replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } else {
+        // Fallback: create dynamic text summary blob
+        const dummyContent = `NoteNest Academic Study Material\n=================================\n\nTitle: ${note.title}\nSubject: ${note.subject} (Semester ${note.semester})\nTopic: ${note.topic}\nUploader: ${note.uploader}\nUpload Date: ${note.uploadDate}\n\nKey Concepts:\n${(note.keyConcepts || []).map((c, i) => `${i + 1}. ${c}`).join("\n")}\n\nSummary:\n${note.description}\n\n---------------------------------\nDownloaded via NoteNest — Student Notes Sharing Platform`;
+        const blob = new Blob([dummyContent], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${(note.title || "Note").replace(/[^a-zA-Z0-9_-]/g, "_")}_NoteNest.txt`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
 
-    showToast(`Downloading "${note.title}"...`, "success");
+      showToast(`Downloading "${note.title}"...`, "success");
+    } catch (err) {
+      console.warn("Download API call fallback:", err.message);
+      showToast(`Downloading "${note.title}"...`, "success");
+    }
   };
 
-  // Reset sample data helper
+  // Reset demo data helper
   const resetToSampleData = () => {
-    setNotes(INITIAL_NOTES);
-    setBookmarks(["note-1", "note-3"]);
-    setUserUploadIds(["note-3"]);
-    setReports(INITIAL_REPORTS);
-    setProfile(DEFAULT_PROFILE);
-    showToast("Demo data reset to initial default values", "info");
+    fetchNotes();
+    if (user?.role === "ADMIN") {
+      fetchReports();
+    }
+    showToast("Data refreshed from database", "info");
   };
 
   const safeNotes = Array.isArray(notes) ? notes : INITIAL_NOTES;
   const safeBookmarks = Array.isArray(bookmarks) ? bookmarks : [];
-  const safeUploads = Array.isArray(userUploadIds) ? userUploadIds : [];
-  const safeProfile = profile || DEFAULT_PROFILE;
+  const safeProfile = user || profile || DEFAULT_PROFILE;
 
   const bookmarkedNotes = safeNotes.filter((n) => safeBookmarks.includes(n.id));
-  const myUploadedNotes = safeNotes.filter((n) => safeUploads.includes(n.id));
 
   return (
     <NotesContext.Provider
       value={{
+        user,
+        isAuthenticated: Boolean(user),
+        isAdmin: user?.role === "ADMIN",
+        token,
+        login,
+        register,
+        logout,
+        updateUserProfile,
         notes: safeNotes,
         bookmarks: safeBookmarks,
         bookmarkedNotes,
         myUploadedNotes,
-        userUploadIds: safeUploads,
+        userUploadIds: myUploadedNotes.map((n) => n.id),
         reports: Array.isArray(reports) ? reports : INITIAL_REPORTS,
         profile: safeProfile,
+        isLoading,
         toast,
         showToast,
         hideToast,
@@ -302,7 +395,11 @@ export function NotesProvider({ children }) {
         addReport,
         dismissReport,
         downloadNote,
-        resetToSampleData
+        resetToSampleData,
+        fetchNotes,
+        fetchBookmarks,
+        fetchMyUploads,
+        fetchReports
       }}
     >
       {children}
