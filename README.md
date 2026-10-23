@@ -1,64 +1,114 @@
-# NoteNest — Student Notes Sharing Platform 📚
+# NoteNest Backend API 🚀
 
 > **CSE Coursework Project: Full Stack Web Development (Year 2)**  
-> Built with **React 19**, **Vite**, **React Router v7**, **Lucide React**, and **Plain Vanilla CSS**.
+> RESTful API built with **Node.js**, **Express**, **Prisma ORM**, **PostgreSQL**, and **Supabase Storage**.
 
 ---
 
 ## 🗂️ Project Structure
 
-All frontend application code is self-contained in the **`frontend/`** directory:
+All backend application code is self-contained in the **`backend/`** directory:
 
 ```
 NoteNest/
-├── frontend/               # Complete frontend application
-│   ├── public/             # Static assets & NoteNest SVG logo
+├── backend/
+│   ├── prisma/             # Prisma schema, migrations, seed data, and admin promotion
+│   │   ├── migrations/     # Database migration history
+│   │   ├── schema.prisma   # PostgreSQL data models (User, Note, Bookmark, Report)
+│   │   └── seed.js         # Initial mock database seed
 │   ├── src/
-│   │   ├── components/     # Reusable UI components (Navbar, NoteCard, etc.)
-│   │   ├── context/        # State management & localStorage sync (NotesContext)
-│   │   ├── data/           # Academic notes dataset & CSE syllabus seed data
-│   │   ├── pages/          # 9 complete website pages
-│   │   └── styles/         # Global design system & layout stylesheet
-│   ├── package.json        # Frontend dependencies & scripts
-│   └── vite.config.js      # Vite configuration
+│   │   ├── config/         # Prisma, Supabase, and environment configs
+│   │   ├── controllers/    # Route controllers (Auth, Notes, Bookmarks, Reports, Admin)
+│   │   ├── middleware/     # Auth, validation, upload, error handling
+│   │   ├── routes/         # Express endpoint route definitions
+│   │   ├── services/       # Storage service (Supabase & local fallback)
+│   │   ├── utils/          # JWT, password hashing, standard responses
+│   │   ├── validators/     # Zod input validation schemas
+│   │   ├── app.js          # Express app configuration & middleware
+│   │   └── server.js       # HTTP server listener
+│   ├── tests/              # API test suite (Node test runner & Supertest)
+│   ├── .env.example        # Environment variable template
+│   └── package.json        # Backend dependencies & scripts
 │
-├── package.json            # Root runner convenience script
-├── .gitignore              # Ignores node_modules, build outputs & logs
-└── README.md               # Main project documentation
+├── package.json            # Root runner convenience scripts
+├── .gitignore              # Ignores node_modules, build outputs, and secrets
+└── README.md               # Backend documentation
 ```
 
 ---
 
-## 🚀 How to Run the Frontend
+## ⚙️ Setup & Installation
 
-You can run the project either from the root or inside the `frontend` folder:
+### 1. Prerequisites
+- **Node.js** (v18 or higher recommended)
+- **PostgreSQL** database (local or cloud provider e.g., Supabase / Neon / Render)
+
+### 2. Environment Variables
+Copy `.env.example` to `.env` inside `backend/`:
+```bash
+cp backend/.env.example backend/.env
+```
+Fill in your database URL and Supabase storage keys (or leave defaults for local dev):
+```env
+PORT=5000
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/notenest?schema=public"
+JWT_SECRET=your_jwt_secret_key
+FRONTEND_URL=http://localhost:5173
+```
+
+### 3. Install Dependencies
+```bash
+cd backend
+npm install
+```
+
+### 4. Database Migration & Seeding
+```bash
+npx prisma migrate dev --name init
+npm run prisma:seed
+```
+
+---
+
+## 🚀 Running the Backend
+
+You can run the server either from the root or inside `backend/`:
 
 ### Option 1: From the Root Directory
 ```bash
 npm run dev
 ```
 
-### Option 2: From the `frontend` Directory
+### Option 2: From the `backend` Directory
 ```bash
-cd frontend
-npm install
+cd backend
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173) in your browser.
+The API will be available at [http://localhost:5000/api](http://localhost:5000/api).
 
 ---
 
-## 🧭 Frontend Pages & Features
+## 🧪 Running Tests
+```bash
+npm run test
+```
 
-| Route | Page | Description |
-| :--- | :--- | :--- |
-| `/` | **Home** | Hero section with tagline *"Your notes. Your community. Your success."*, search bar, semester filters, core subjects, and popular notes. |
-| `/notes` | **Explore Notes** | Real-time text search, subject filter, semester filter, trending topic chips, and sorting. |
-| `/notes/:id` | **Note Details** | Full note metadata, key syllabus concepts, document reader preview, bookmarking, download simulation, and report dialog. |
-| `/upload` | **Upload Notes** | Drag-and-drop PDF selection, form validation, and live publishing to local state. |
-| `/library` | **My Library** | Saved notes persisted across sessions using `localStorage`. |
-| `/profile` | **Student Profile** | Student details, uploaded notes list, download counts, and delete confirmation modal. |
-| `/login` | **Student Login** | Student login card, email/password validation, show/hide password toggle, and demo quick-fill. |
-| `/register` | **Student Register** | Registration form with password confirmation matching. |
-| `/admin` | **Admin Dashboard** | Oversight portal with 4 statistic cards, notes repository table, and reports moderation table. |
+---
+
+## 📡 API Endpoints Overview
+
+| Method | Endpoint | Description | Auth Required |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/auth/register` | Register a new student account | No |
+| `POST` | `/api/auth/login` | Login and receive JWT token | No |
+| `GET` | `/api/auth/me` | Get current logged-in user profile | Yes |
+| `GET` | `/api/notes` | List notes with search, filters, pagination | No |
+| `GET` | `/api/notes/:id` | Get details of a single note | No |
+| `POST` | `/api/notes` | Upload a new note (with PDF file) | Yes |
+| `DELETE` | `/api/notes/:id` | Delete own note or delete as admin | Yes |
+| `POST` | `/api/bookmarks/:noteId` | Toggle bookmark on a note | Yes |
+| `GET` | `/api/bookmarks` | Get all saved bookmarks for student | Yes |
+| `POST` | `/api/reports` | Report an inappropriate note | Yes |
+| `GET` | `/api/admin/stats` | Admin metrics (total notes, users, reports) | Admin |
+| `GET` | `/api/admin/reports` | Admin report moderation list | Admin |
