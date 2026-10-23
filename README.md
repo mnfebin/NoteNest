@@ -1,64 +1,84 @@
 # NoteNest — Student Notes Sharing Platform 📚
 
 > **CSE Coursework Project: Full Stack Web Development (Year 2)**  
-> Built with **React 19**, **Vite**, **React Router v7**, **Lucide React**, and **Plain Vanilla CSS**.
+> NoteNest is a modern academic notes-sharing web platform where college students can upload, search, bookmark, and study peer-shared lecture notes and materials.
 
 ---
 
-## 🗂️ Project Structure
+## 🌿 Repository Branch Structure
 
-All frontend application code is self-contained in the **`frontend/`** directory:
+To maintain clean separation between frontend and backend workflows, all active application code is organized into two dedicated branches:
 
 ```
-NoteNest/
-├── frontend/               # Complete frontend application
-│   ├── public/             # Static assets & NoteNest SVG logo
-│   ├── src/
-│   │   ├── components/     # Reusable UI components (Navbar, NoteCard, etc.)
-│   │   ├── context/        # State management & localStorage sync (NotesContext)
-│   │   ├── data/           # Academic notes dataset & CSE syllabus seed data
-│   │   ├── pages/          # 9 complete website pages
-│   │   └── styles/         # Global design system & layout stylesheet
-│   ├── package.json        # Frontend dependencies & scripts
-│   └── vite.config.js      # Vite configuration
+NoteNest (Repository)
 │
-├── package.json            # Root runner convenience script
-├── .gitignore              # Ignores node_modules, build outputs & logs
-└── README.md               # Main project documentation
+├── 🌿 main         -> Project overview, architecture docs & guidelines (You are here)
+├── 🌿 frontend     -> React 19 + Vite client application
+└── 🌿 backend      -> Node.js + Express + Prisma + PostgreSQL API
 ```
 
 ---
 
-## 🚀 How to Run the Frontend
+## 🚀 How to Access & Work with Branches
 
-You can run the project either from the root or inside the `frontend` folder:
+### 1. Frontend Development (`frontend` branch)
+Contains the user interface built with React 19, Vite, React Router v7, Lucide React, and Plain Vanilla CSS.
 
-### Option 1: From the Root Directory
 ```bash
-npm run dev
-```
+# Switch to the frontend branch
+git checkout frontend
 
-### Option 2: From the `frontend` Directory
-```bash
+# Navigate to the frontend directory
 cd frontend
+
+# Install dependencies and start the dev server
 npm install
 npm run dev
 ```
-
-Open [http://localhost:5173](http://localhost:5173) in your browser.
+> The frontend dev server will start at: `http://localhost:5173`
 
 ---
 
-## 🧭 Frontend Pages & Features
+### 2. Backend Development (`backend` branch)
+Contains the RESTful API built with Express, Prisma ORM, PostgreSQL, Supabase storage for PDF notes, and JWT authentication.
 
-| Route | Page | Description |
-| :--- | :--- | :--- |
-| `/` | **Home** | Hero section with tagline *"Your notes. Your community. Your success."*, search bar, semester filters, core subjects, and popular notes. |
-| `/notes` | **Explore Notes** | Real-time text search, subject filter, semester filter, trending topic chips, and sorting. |
-| `/notes/:id` | **Note Details** | Full note metadata, key syllabus concepts, document reader preview, bookmarking, download simulation, and report dialog. |
-| `/upload` | **Upload Notes** | Drag-and-drop PDF selection, form validation, and live publishing to local state. |
-| `/library` | **My Library** | Saved notes persisted across sessions using `localStorage`. |
-| `/profile` | **Student Profile** | Student details, uploaded notes list, download counts, and delete confirmation modal. |
-| `/login` | **Student Login** | Student login card, email/password validation, show/hide password toggle, and demo quick-fill. |
-| `/register` | **Student Register** | Registration form with password confirmation matching. |
-| `/admin` | **Admin Dashboard** | Oversight portal with 4 statistic cards, notes repository table, and reports moderation table. |
+```bash
+# Switch to the backend branch
+git checkout backend
+
+# Navigate to the backend directory
+cd backend
+
+# Install dependencies
+npm install
+
+# Setup environment variables
+cp .env.example .env
+
+# Run database migrations and seed data
+npx prisma migrate dev --name init
+npm run prisma:seed
+
+# Start the API server
+npm run dev
+```
+> The API server will start at: `http://localhost:5000/api`
+
+---
+
+## 🏛️ Architecture Overview
+
+```mermaid
+graph TD
+    User([Student / User]) <--> Frontend[React 19 Frontend<br/>Vite + Router v7]
+    Frontend <-->|REST API + JWT| Backend[Express.js API<br/>Node.js Server]
+    Backend <--> Prisma[(Prisma ORM)]
+    Prisma <--> Database[(PostgreSQL Database)]
+    Backend <--> Supabase[Supabase Storage<br/>PDF Notes Bucket]
+```
+
+---
+
+## 👥 Team & Responsibilities
+- **Frontend Development:** UI/UX, responsive layouts, search & filter interactions, client-side routing, and state management.
+- **Backend Development:** RESTful API design, database schemas, authentication middleware, file upload pipelines, and admin moderation.
