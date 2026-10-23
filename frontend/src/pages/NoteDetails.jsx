@@ -7,27 +7,22 @@ import {
   AlertTriangle,
   Calendar,
   FileText,
-  User,
   CheckCircle2,
   Share2,
-  BookOpen,
-  Sparkles,
-  Layers,
   Eye,
-  FileCheck,
-  Send
+  FileCheck
 } from "lucide-react";
 import { useNotes } from "../context/NotesContext";
 import { SUBJECT_METADATA } from "../data/notes";
 import Button from "../components/Button";
-import Modal from "../components/Modal";
 import EmptyState from "../components/EmptyState";
+import ReportModal from "../components/ReportModal";
 import { api } from "../services/api";
 
 export default function NoteDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { notes, isBookmarked, toggleBookmark, downloadNote, addReport, showToast } = useNotes();
+  const { notes, isBookmarked, toggleBookmark, downloadNote, openPdf, showToast } = useNotes();
 
   const [fetchedNote, setFetchedNote] = useState(null);
   const [isLoadingNote, setIsLoadingNote] = useState(false);
@@ -38,9 +33,6 @@ export default function NoteDetails() {
 
   // Report Modal state
   const [isReportOpen, setIsReportOpen] = useState(false);
-  const [reportReason, setReportReason] = useState("Inaccurate or outdated technical content");
-  const [reportDetails, setReportDetails] = useState("");
-  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
 
   // If note not in local context, fetch from backend API
   React.useEffect(() => {
@@ -101,25 +93,6 @@ export default function NoteDetails() {
     showToast("Note link copied to clipboard!", "info");
   };
 
-  const handleReportSubmit = async (e) => {
-    e.preventDefault();
-    setIsSubmittingReport(true);
-
-    try {
-      await addReport({
-        noteId: note.id,
-        noteTitle: note.title,
-        reason: reportReason,
-        details: reportDetails
-      });
-      setIsReportOpen(false);
-      setReportDetails("");
-    } catch (_err) {
-      // Toast already shown in context
-    } finally {
-      setIsSubmittingReport(false);
-    }
-  };
 
   return (
     <div className="container" style={{ paddingTop: "1rem" }}>
@@ -337,14 +310,22 @@ export default function NoteDetails() {
               <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "1.25rem" }}>
                 Formatted PDF document • {note.fileSize} • Uploaded by {note.uploader}
               </p>
-              <div style={{ display: "flex", justifyContent: "center", gap: "0.75rem" }}>
+              <div style={{ display: "flex", justifyContent: "center", gap: "0.75rem", flexWrap: "wrap" }}>
                 <Button
                   variant="primary"
+                  size="md"
+                  icon={Eye}
+                  onClick={() => openPdf(note)}
+                >
+                  Open PDF in Browser
+                </Button>
+                <Button
+                  variant="secondary"
                   size="md"
                   icon={Download}
                   onClick={() => downloadNote(note)}
                 >
-                  Download Free PDF
+                  Download PDF
                 </Button>
                 <Button
                   variant="outline"
@@ -371,11 +352,21 @@ export default function NoteDetails() {
               <Button
                 variant="primary"
                 size="lg"
+                icon={Eye}
+                onClick={() => openPdf(note)}
+                style={{ width: "100%" }}
+              >
+                Open / Read PDF Online
+              </Button>
+
+              <Button
+                variant="secondary"
+                size="md"
                 icon={Download}
                 onClick={() => downloadNote(note)}
                 style={{ width: "100%" }}
               >
-                Download Note ({note.fileSize})
+                Download PDF ({note.fileSize || "PDF Document"})
               </Button>
 
               <Button
@@ -480,71 +471,11 @@ export default function NoteDetails() {
       </div>
 
       {/* Report Modal */}
-      <Modal
+      <ReportModal
         isOpen={isReportOpen}
         onClose={() => setIsReportOpen(false)}
-        title="Report Resource"
-        footer={
-          <>
-            <Button
-              variant="outline"
-              size="md"
-              onClick={() => setIsReportOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              size="md"
-              icon={Send}
-              disabled={isSubmittingReport}
-              onClick={handleReportSubmit}
-            >
-              {isSubmittingReport ? "Submitting..." : "Submit Report"}
-            </Button>
-          </>
-        }
-      >
-        <form onSubmit={handleReportSubmit}>
-          <div style={{ marginBottom: "1rem" }}>
-            <p style={{ fontSize: "0.875rem", color: "var(--text-secondary)", marginBottom: "0.75rem" }}>
-              Reporting note: <strong style={{ color: "var(--text-main)" }}>"{note.title}"</strong>
-            </p>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label" htmlFor="report-reason">
-              Reason for Reporting
-            </label>
-            <select
-              id="report-reason"
-              className="form-select"
-              value={reportReason}
-              onChange={(e) => setReportReason(e.target.value)}
-            >
-              <option value="Inaccurate or outdated technical content">Inaccurate or outdated technical content</option>
-              <option value="Corrupted or blank PDF file">Corrupted or blank PDF file</option>
-              <option value="Copyright infringement or proprietary book scan">Copyright infringement or proprietary book scan</option>
-              <option value="Wrong subject or wrong semester categorization">Wrong subject or wrong semester categorization</option>
-              <option value="Inappropriate language or spam">Inappropriate language or spam</option>
-            </select>
-          </div>
-
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label" htmlFor="report-details">
-              Additional Details (Optional)
-            </label>
-            <textarea
-              id="report-details"
-              className="form-textarea"
-              rows={3}
-              placeholder="Explain what specific section or issue was found..."
-              value={reportDetails}
-              onChange={(e) => setReportDetails(e.target.value)}
-            />
-          </div>
-        </form>
-      </Modal>
+        note={note}
+      />
     </div>
   );
 }

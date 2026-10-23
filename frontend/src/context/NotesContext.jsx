@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { INITIAL_NOTES, INITIAL_REPORTS } from "../data/notes";
 import { api, getToken, setToken, clearToken } from "../services/api";
+import { downloadNotePdf, openNotePdf } from "../utils/pdfGenerator";
 
 const NotesContext = createContext(null);
 
-export const DEFAULT_PROFILE = {
+const DEFAULT_PROFILE = {
   name: "Alex Rivera",
   email: "alex.rivera@college.edu",
   branch: "Computer Science & Engineering",
@@ -22,7 +23,17 @@ export function NotesProvider({ children }) {
 
   // 2. Data states
   const [notes, setNotes] = useState(INITIAL_NOTES);
-  const [bookmarks, setBookmarks] = useState(["note-1", "note-3"]);
+  const [bookmarks, setBookmarks] = useState(() => {
+    try {
+      const saved = localStorage.getItem("notenest_guest_bookmarks");
+      return saved ? JSON.parse(saved) : ["note-1", "note-3"];
+    } catch {
+      return ["note-1", "note-3"];
+    }
+  });
+  const [bookmarkedNotesData, setBookmarkedNotesData] = useState([]);
+  const [isBookmarksLoading, setIsBookmarksLoading] = useState(false);
+  const [bookmarksError, setBookmarksError] = useState(null);
   const [myUploadedNotes, setMyUploadedNotes] = useState([]);
   const [reports, setReports] = useState(INITIAL_REPORTS);
   const [isLoading, setIsLoading] = useState(false);
@@ -57,14 +68,20 @@ export function NotesProvider({ children }) {
   // Fetch bookmarks for current user
   const fetchBookmarks = useCallback(async () => {
     if (!getToken()) return;
+    setIsBookmarksLoading(true);
+    setBookmarksError(null);
     try {
       const res = await api.bookmarks.list();
       if (res?.success && Array.isArray(res.data)) {
+        setBookmarkedNotesData(res.data);
         const ids = res.data.map((n) => n.id);
         setBookmarks(ids);
       }
     } catch (err) {
       console.warn("Failed to fetch bookmarks:", err.message);
+      setBookmarksError(err.message || "Failed to load bookmarks");
+    } finally {
+      setIsBookmarksLoading(false);
     }
   }, []);
 
@@ -253,12 +270,19 @@ export function NotesProvider({ children }) {
 
     if (!user) {
       // Local optimistic toggle for guest browsing demo
+      let updated;
       if (exists) {
-        setBookmarks((prev) => prev.filter((id) => id !== noteId));
+        updated = bookmarks.filter((id) => id !== noteId);
         showToast("Removed from My Library", "info");
       } else {
-        setBookmarks((prev) => [...prev, noteId]);
-        showToast("Saved to My Library", "success");
+        updated = [...bookmarks, noteId];
+        showToast("Saved to My Library (Guest mode)", "success");
+      }
+      setBookmarks(updated);
+      try {
+        localStorage.setItem("notenest_guest_bookmarks", JSON.stringify(updated));
+      } catch {
+        // ignore localStorage error
       }
       return;
     }
@@ -266,15 +290,19 @@ export function NotesProvider({ children }) {
     try {
       if (exists) {
         setBookmarks((prev) => prev.filter((id) => id !== noteId));
+        setBookmarkedNotesData((prev) => prev.filter((n) => n.id !== noteId));
         await api.bookmarks.remove(noteId);
         showToast("Removed from My Library", "info");
       } else {
         setBookmarks((prev) => [...prev, noteId]);
+        const targetNote = notes.find((n) => n.id === noteId);
+        if (targetNote) {
+          setBookmarkedNotesData((prev) => [targetNote, ...prev]);
+        }
         await api.bookmarks.add(noteId);
         showToast("Saved to My Library", "success");
       }
     } catch (err) {
-      // Rollback on failure
       fetchBookmarks();
       showToast(err.message || "Failed to update bookmark", "danger");
     }
@@ -374,24 +402,36 @@ export function NotesProvider({ children }) {
       const res = await api.reports.create({
         noteId: reportData.noteId,
         reason: reportData.reason,
-        description: reportData.details || reportData.description
+        description: reportData.description || reportData.details || ""
       });
       const newReport = res.data;
       setReports((prev) => [newReport, ...prev]);
       showToast("Report submitted to administrators. Thank you!", "info");
       return newReport;
-    } catch (_err) {
-      const mockReport = {
-        id: `report-demo-${Date.now()}`,
-        noteId: reportData.noteId,
-        reason: reportData.reason,
-        details: reportData.details || reportData.description,
-        status: "PENDING",
-        createdAt: new Date().toISOString()
-      };
-      setReports((prev) => [mockReport, ...prev]);
-      showToast("Report submitted to administrators (Demo Mode). Thank you!", "info");
-      return mockReport;
+    } catch (err) {
+      const isConnectionError =
+        !err.status ||
+        err.message?.includes("fetch") ||
+        err.message?.includes("Failed to fetch") ||
+        err.message?.includes("NetworkError");
+
+      if (isConnectionError) {
+        const mockReport = {
+          id: `report-demo-${Date.now()}`,
+          noteId: reportData.noteId,
+          noteTitle: reportData.noteTitle || "Reported Note",
+          reason: reportData.reason,
+          details: reportData.description || reportData.details || "",
+          status: "OPEN",
+          reporter: user?.email || "student@college.edu",
+          createdAt: new Date().toISOString()
+        };
+        setReports((prev) => [mockReport, ...prev]);
+        showToast("Report submitted to administrators (Demo Mode). Thank you!", "info");
+        return mockReport;
+      }
+      showToast(err.message || "Failed to submit report", "danger");
+      throw err;
     }
   };
 
@@ -406,7 +446,7 @@ export function NotesProvider({ children }) {
     }
   };
 
-  // Download note
+  // Download note as genuine PDF
   const downloadNote = async (note) => {
     if (!note) return;
 
@@ -418,38 +458,37 @@ export function NotesProvider({ children }) {
     );
 
     try {
-      const res = await api.notes.download(note.id);
+      // Try backend download endpoint if connected
+      const res = await api.notes.download(note.id).catch(() => null);
       const downloadUrl = res?.data?.downloadUrl || note.fileUrl;
 
-      if (downloadUrl && downloadUrl.startsWith("http")) {
-        // Trigger browser download via window/link
+      if (downloadUrl && downloadUrl.startsWith("http") && !downloadUrl.includes("placeholder")) {
         const link = document.createElement("a");
         link.href = downloadUrl;
         link.target = "_blank";
         link.rel = "noopener noreferrer";
-        link.download = note.fileName || `${note.title.replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
+        link.download = note.fileName || `${(note.title || "Note").replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
       } else {
-        // Fallback: create dynamic text summary blob
-        const dummyContent = `NoteNest Academic Study Material\n=================================\n\nTitle: ${note.title}\nSubject: ${note.subject} (Semester ${note.semester})\nTopic: ${note.topic}\nUploader: ${note.uploader}\nUpload Date: ${note.uploadDate}\n\nKey Concepts:\n${(note.keyConcepts || []).map((c, i) => `${i + 1}. ${c}`).join("\n")}\n\nSummary:\n${note.description}\n\n---------------------------------\nDownloaded via NoteNest — Student Notes Sharing Platform`;
-        const blob = new Blob([dummyContent], { type: "text/plain;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = `${(note.title || "Note").replace(/[^a-zA-Z0-9_-]/g, "_")}_NoteNest.txt`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+        // Generate real client-side PDF document
+        downloadNotePdf(note);
       }
 
-      showToast(`Downloading "${note.title}"...`, "success");
-    } catch (err) {
-      console.warn("Download API call fallback:", err.message);
-      showToast(`Downloading "${note.title}"...`, "success");
+      showToast(`Downloaded "${note.title}.pdf"`, "success");
+    } catch (_err) {
+      // Fallback: guaranteed valid PDF download
+      downloadNotePdf(note);
+      showToast(`Downloaded "${note.title}.pdf"`, "success");
     }
+  };
+
+  // Open note PDF in browser for live reading
+  const openPdf = (note) => {
+    if (!note) return;
+    openNotePdf(note);
+    showToast(`Opening "${note.title}" PDF in viewer...`, "info");
   };
 
   // Reset demo data helper
@@ -465,7 +504,19 @@ export function NotesProvider({ children }) {
   const safeBookmarks = Array.isArray(bookmarks) ? bookmarks : [];
   const safeProfile = user || profile || DEFAULT_PROFILE;
 
-  const bookmarkedNotes = safeNotes.filter((n) => safeBookmarks.includes(n.id));
+  // Combine full bookmarked objects from backend with any notes in local memory
+  const noteMap = new Map();
+  bookmarkedNotesData.forEach((n) => {
+    if (n && n.id && safeBookmarks.includes(n.id)) {
+      noteMap.set(n.id, n);
+    }
+  });
+  safeNotes.forEach((n) => {
+    if (n && n.id && safeBookmarks.includes(n.id) && !noteMap.has(n.id)) {
+      noteMap.set(n.id, n);
+    }
+  });
+  const bookmarkedNotes = Array.from(noteMap.values());
 
   return (
     <NotesContext.Provider
@@ -481,6 +532,8 @@ export function NotesProvider({ children }) {
         notes: safeNotes,
         bookmarks: safeBookmarks,
         bookmarkedNotes,
+        isBookmarksLoading,
+        bookmarksError,
         myUploadedNotes,
         userUploadIds: myUploadedNotes.map((n) => n.id),
         reports: Array.isArray(reports) ? reports : INITIAL_REPORTS,
@@ -496,6 +549,7 @@ export function NotesProvider({ children }) {
         addReport,
         dismissReport,
         downloadNote,
+        openPdf,
         resetToSampleData,
         fetchNotes,
         fetchBookmarks,

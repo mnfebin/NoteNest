@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Bookmark,
@@ -7,10 +7,12 @@ import {
   FileText,
   Tag,
   ArrowRight,
-  Trash2
+  Trash2,
+  AlertTriangle
 } from "lucide-react";
 import { useNotes } from "../context/NotesContext";
 import { SUBJECT_METADATA } from "../data/notes";
+import ReportModal from "./ReportModal";
 
 export default function NoteCard({
   note,
@@ -18,9 +20,11 @@ export default function NoteCard({
   isOwner = false,
   customAction = null
 }) {
+  const { isBookmarked, toggleBookmark, downloadNote } = useNotes();
+  const [isReportOpen, setIsReportOpen] = useState(false);
+
   if (!note) return null;
 
-  const { isBookmarked, toggleBookmark, downloadNote } = useNotes();
   const bookmarked = isBookmarked(note.id);
 
   const subjectMeta = SUBJECT_METADATA[note.subject] || {
@@ -94,6 +98,20 @@ export default function NoteCard({
               fill={bookmarked ? "var(--accent-purple)" : "none"}
               color={bookmarked ? "var(--accent-purple)" : "currentColor"}
             />
+          </button>
+
+          <button
+            type="button"
+            className="note-card-bookmark-btn"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setIsReportOpen(true);
+            }}
+            title="Report this note to moderators"
+            aria-label="Report note"
+          >
+            <AlertTriangle size={16} />
           </button>
         </div>
       </div>
@@ -174,6 +192,12 @@ export default function NoteCard({
           </Link>
         </div>
       </div>
+
+      <ReportModal
+        isOpen={isReportOpen}
+        onClose={() => setIsReportOpen(false)}
+        note={note}
+      />
     </article>
   );
 }
