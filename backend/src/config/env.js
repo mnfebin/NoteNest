@@ -13,7 +13,7 @@ const envSchema = z.object({
   JWT_EXPIRES_IN: z.string().default("7d"),
   SUPABASE_URL: z.string().optional().default(""),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default(""),
-  SUPABASE_STORAGE_BUCKET: z.string().default("notes"),
+  SUPABASE_STORAGE_BUCKET: z.string().default("notenest-notes"),
   MAX_FILE_SIZE_MB: z.coerce.number().default(10)
 });
 
@@ -39,6 +39,6 @@ export const env = parsed.success ? parsed.data : {
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || "7d",
   SUPABASE_URL: process.env.SUPABASE_URL || "",
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
-  SUPABASE_STORAGE_BUCKET: process.env.SUPABASE_STORAGE_BUCKET || "notes",
+  SUPABASE_STORAGE_BUCKET: process.env.SUPABASE_STORAGE_BUCKET || "notenest-notes",
   MAX_FILE_SIZE_MB: Number(process.env.MAX_FILE_SIZE_MB) || 10
 };

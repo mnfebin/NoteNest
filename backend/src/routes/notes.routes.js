@@ -9,6 +9,7 @@ import {
   downloadNote,
   serveLocalFile
 } from "../controllers/notes.controller.js";
+import { createReport } from "../controllers/reports.controller.js";
 import { authenticate, optionalAuthenticate } from "../middleware/auth.middleware.js";
 import { uploadPdf } from "../middleware/upload.middleware.js";
 import { validate } from "../middleware/validate.middleware.js";
@@ -17,6 +18,7 @@ import {
   updateNoteSchema,
   queryNotesSchema
 } from "../validators/notes.validator.js";
+import { createReportForNoteSchema } from "../validators/reports.validator.js";
 
 const router = Router();
 
@@ -31,5 +33,8 @@ router.get("/file/:filename", serveLocalFile);
 router.post("/", authenticate, uploadPdf, validate(createNoteSchema), uploadNote);
 router.patch("/:id", authenticate, validate(updateNoteSchema), updateNote);
 router.delete("/:id", authenticate, deleteNote);
+
+// Note-specific report endpoint (POST /api/notes/:id/reports)
+router.post("/:id/reports", authenticate, validate(createReportForNoteSchema), createReport);
 
 export default router;

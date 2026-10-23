@@ -1,4 +1,5 @@
-import prisma from "../config/prisma.js";
+import { BookmarksRepository } from "../repositories/bookmarks.repository.js";
+import { NotesRepository } from "../repositories/notes.repository.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 
 /**
@@ -6,22 +7,10 @@ import { sendSuccess, sendError } from "../utils/response.js";
  */
 export async function getBookmarks(req, res, next) {
   try {
-    const bookmarks = await prisma.bookmark.findMany({
-      where: { userId: req.user.id },
-      orderBy: { createdAt: "desc" },
-      include: {
-        note: {
-          include: {
-            uploader: {
-              select: { id: true, name: true, email: true }
-            }
-          }
-        }
-      }
-    });
+    const bookmarks = await BookmarksRepository.getUserBookmarks(req.user.id);
 
     const bookmarkedNotes = bookmarks
-      .filter((b) => b.note !== null)
+      .filter((b) => b.note !== null && b.note.status !== "REMOVED")
       .map((b) => ({
         id: b.note.id,
         title: b.note.title,
@@ -31,9 +20,11 @@ export async function getBookmarks(req, res, next) {
         topic: b.note.topic,
         uploader: b.note.uploader?.name || "Verified Student",
         uploaderEmail: b.note.uploader?.email || "",
-        uploadDate: b.note.createdAt.toISOString().split("T")[0],
+        uploadDate: b.note.createdAt instanceof Date ? b.note.createdAt.toISOString().split("T")[0] : "",
         createdAt: b.note.createdAt,
+        fileKey: b.note.fileKey || null,
         fileType: b.note.fileType || "PDF",
+        mimeType: b.note.mimeType || "application/pdf",
         fileSize: b.note.fileSize,
         fileName: b.note.fileName,
         fileUrl: b.note.fileUrl,
@@ -61,32 +52,18 @@ export async function addBookmark(req, res, next) {
   try {
     const { noteId } = req.params;
 
-    // Check if note exists
-    const note = await prisma.note.findUnique({
-      where: { id: noteId }
-    });
+    // Check if note exists and is active
+    const note = await NotesRepository.findNoteById(noteId);
 
-    if (!note) {
+    if (!note || note.status === "REMOVED") {
       return sendError(res, {
         statusCode: 404,
-        message: "Note not found"
+        message: "Note not found or has been removed."
       });
     }
 
-    // Upsert to prevent duplicate bookmark errors
-    const bookmark = await prisma.bookmark.upsert({
-      where: {
-        userId_noteId: {
-          userId: req.user.id,
-          noteId
-        }
-      },
-      update: {},
-      create: {
-        userId: req.user.id,
-        noteId
-      }
-    });
+    // Upsert via BookmarksRepository to prevent duplicate bookmark errors
+    const bookmark = await BookmarksRepository.addBookmark(req.user.id, noteId);
 
     return sendSuccess(res, {
       statusCode: 201,
@@ -105,12 +82,7 @@ export async function removeBookmark(req, res, next) {
   try {
     const { noteId } = req.params;
 
-    await prisma.bookmark.deleteMany({
-      where: {
-        userId: req.user.id,
-        noteId
-      }
-    });
+    await BookmarksRepository.removeBookmark(req.user.id, noteId);
 
     return sendSuccess(res, {
       statusCode: 200,

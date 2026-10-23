@@ -1,16 +1,18 @@
-import prisma from "../config/prisma.js";
-import { StorageService } from "../services/storage.service.js";
-import { sendSuccess, sendError } from "../utils/response.js";
 import path from "path";
 import fs from "fs";
+import { NotesRepository } from "../repositories/notes.repository.js";
+import { StorageService } from "../services/storage.service.js";
+import { sendSuccess, sendError } from "../utils/response.js";
+import { sanitizeFileName } from "../utils/fileValidation.js";
 
 /**
- * Format a Note database record for consistent API consumption by frontend.
+ * Format a Note database record for consistent API consumption across frontend and admin modules.
  */
 function formatNote(note, currentUserId = null) {
-  const isBookmarked = currentUserId && note.bookmarks
-    ? note.bookmarks.some((b) => b.userId === currentUserId)
-    : false;
+  const isBookmarked =
+    currentUserId && note.bookmarks
+      ? note.bookmarks.some((b) => b.userId === currentUserId)
+      : false;
 
   return {
     id: note.id,
@@ -22,10 +24,12 @@ function formatNote(note, currentUserId = null) {
     uploader: note.uploader?.name || "Verified Student",
     uploaderEmail: note.uploader?.email || "",
     uploaderId: note.uploaderId,
-    uploadDate: note.createdAt.toISOString().split("T")[0],
+    uploadDate: note.createdAt instanceof Date ? note.createdAt.toISOString().split("T")[0] : "",
     createdAt: note.createdAt,
     updatedAt: note.updatedAt,
+    fileKey: note.fileKey || null,
     fileType: note.fileType || "PDF",
+    mimeType: note.mimeType || "application/pdf",
     fileSize: note.fileSize,
     fileName: note.fileName,
     fileUrl: note.fileUrl,
@@ -59,67 +63,20 @@ export async function getNotes(req, res, next) {
     const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 12));
     const skip = (pageNum - 1) * limitNum;
 
-    // Build Prisma query filter
-    const where = {};
-
-    // By default, public notes listing only displays APPROVED notes
     const isAdmin = req.user?.role === "ADMIN";
-    if (status && isAdmin) {
-      where.status = status;
-    } else {
-      where.status = "APPROVED";
-    }
+    const statusFilter = status && isAdmin ? status : "APPROVED";
 
-    if (subject && subject !== "All Subjects") {
-      where.subject = { equals: subject, mode: "insensitive" };
-    }
-
-    if (semester && semester !== "all") {
-      where.semester = parseInt(semester, 10);
-    }
-
-    if (topic && topic !== "All Topics") {
-      where.topic = { contains: topic, mode: "insensitive" };
-    }
-
-    if (search && search.trim()) {
-      const q = search.trim();
-      where.OR = [
-        { title: { contains: q, mode: "insensitive" } },
-        { description: { contains: q, mode: "insensitive" } },
-        { topic: { contains: q, mode: "insensitive" } },
-        { subject: { contains: q, mode: "insensitive" } }
-      ];
-    }
-
-    // Determine sorting
-    let orderBy = { createdAt: "desc" };
-    if (sort === "popular") {
-      orderBy = { downloadCount: "desc" };
-    } else if (sort === "alphabetical") {
-      orderBy = { title: "asc" };
-    }
-
-    const [total, notes] = await Promise.all([
-      prisma.note.count({ where }),
-      prisma.note.findMany({
-        where,
-        orderBy,
-        skip,
-        take: limitNum,
-        include: {
-          uploader: {
-            select: { id: true, name: true, email: true }
-          },
-          bookmarks: req.user
-            ? {
-                where: { userId: req.user.id },
-                select: { userId: true }
-              }
-            : false
-        }
-      })
-    ]);
+    const { total, notes } = await NotesRepository.findActiveNotes({
+      search,
+      subject,
+      semester,
+      topic,
+      sort,
+      skip,
+      take: limitNum,
+      status: statusFilter,
+      includeBookmarksForUserId: req.user?.id
+    });
 
     const formattedNotes = notes.map((n) => formatNote(n, req.user?.id));
 
@@ -146,29 +103,18 @@ export async function getNoteById(req, res, next) {
   try {
     const { id } = req.params;
 
-    const note = await prisma.note.findUnique({
-      where: { id },
-      include: {
-        uploader: {
-          select: { id: true, name: true, email: true, semester: true, college: true }
-        },
-        bookmarks: req.user
-          ? {
-              where: { userId: req.user.id },
-              select: { userId: true }
-            }
-          : false
-      }
+    const note = await NotesRepository.findNoteById(id, {
+      includeBookmarksForUserId: req.user?.id
     });
 
-    if (!note) {
+    if (!note || note.status === "REMOVED") {
       return sendError(res, {
         statusCode: 404,
-        message: "Note not found."
+        message: "Note not found or has been removed."
       });
     }
 
-    // Only allow viewing if approved, or if the requester is the owner or an admin
+    // Only allow viewing if approved, or if requester is the uploader or an admin
     const isOwner = req.user?.id === note.uploaderId;
     const isAdmin = req.user?.role === "ADMIN";
 
@@ -193,7 +139,7 @@ export async function getNoteById(req, res, next) {
  * Upload a note and its PDF file.
  */
 export async function uploadNote(req, res, next) {
-  let uploadedStoragePath = null;
+  let uploadedFileKey = null;
 
   try {
     if (!req.file) {
@@ -215,39 +161,35 @@ export async function uploadNote(req, res, next) {
 
     const fileSizeFormatted = `${(req.file.size / (1024 * 1024)).toFixed(1)} MB`;
 
-    // Upload PDF to Supabase Storage (or local fallback in test/offline mode)
+    // 1. Upload PDF buffer to Supabase Storage (or test fallback)
     const uploadResult = await StorageService.uploadFile({
       buffer: req.file.buffer,
       originalName: req.file.originalname,
       mimeType: "application/pdf"
     });
 
-    uploadedStoragePath = uploadResult.storagePath;
+    uploadedFileKey = uploadResult.fileKey;
 
-    // Normal student uploads start as PENDING for admin review (or APPROVED if uploaded by admin)
+    // Normal student uploads start as PENDING for admin review (APPROVED for admins)
     const initialStatus = req.user.role === "ADMIN" ? "APPROVED" : "PENDING";
 
-    const note = await prisma.note.create({
-      data: {
-        title,
-        description,
-        subject,
-        semester: parseInt(semester, 10),
-        topic,
-        uploaderId: req.user.id,
-        fileName: req.file.originalname,
-        fileUrl: uploadResult.fileUrl,
-        fileSize: fileSizeFormatted,
-        fileType: "PDF",
-        status: initialStatus,
-        tags: Array.isArray(tags) ? tags : [tags].filter(Boolean),
-        keyConcepts: Array.isArray(keyConcepts) ? keyConcepts : [keyConcepts].filter(Boolean)
-      },
-      include: {
-        uploader: {
-          select: { id: true, name: true, email: true }
-        }
-      }
+    // 2. Persist note metadata and fileKey in PostgreSQL via NotesRepository
+    const note = await NotesRepository.createNote({
+      title,
+      description,
+      subject,
+      semester: parseInt(semester, 10),
+      topic,
+      uploaderId: req.user.id,
+      fileKey: uploadResult.fileKey,
+      fileName: sanitizeFileName(req.file.originalname),
+      fileUrl: uploadResult.fileUrl,
+      fileSize: fileSizeFormatted,
+      fileType: "PDF",
+      mimeType: "application/pdf",
+      status: initialStatus,
+      tags: Array.isArray(tags) ? tags : [tags].filter(Boolean),
+      keyConcepts: Array.isArray(keyConcepts) ? keyConcepts : [keyConcepts].filter(Boolean)
     });
 
     return sendSuccess(res, {
@@ -259,10 +201,10 @@ export async function uploadNote(req, res, next) {
       data: formatNote(note, req.user.id)
     });
   } catch (error) {
-    // Clean up uploaded file if DB operation fails
-    if (uploadedStoragePath) {
+    // Clean up uploaded file in storage if PostgreSQL insert fails (Prevents orphaned files)
+    if (uploadedFileKey) {
       try {
-        await StorageService.deleteFile(uploadedStoragePath);
+        await StorageService.deleteFile(uploadedFileKey);
       } catch (cleanupErr) {
         console.error("Failed to clean up file after error:", cleanupErr);
       }
@@ -278,11 +220,9 @@ export async function updateNote(req, res, next) {
   try {
     const { id } = req.params;
 
-    const note = await prisma.note.findUnique({
-      where: { id }
-    });
+    const note = await NotesRepository.findNoteById(id);
 
-    if (!note) {
+    if (!note || note.status === "REMOVED") {
       return sendError(res, { statusCode: 404, message: "Note not found." });
     }
 
@@ -307,15 +247,7 @@ export async function updateNote(req, res, next) {
     if (tags !== undefined) updateData.tags = Array.isArray(tags) ? tags : [];
     if (keyConcepts !== undefined) updateData.keyConcepts = Array.isArray(keyConcepts) ? keyConcepts : [];
 
-    const updated = await prisma.note.update({
-      where: { id },
-      data: updateData,
-      include: {
-        uploader: {
-          select: { id: true, name: true, email: true }
-        }
-      }
-    });
+    const updated = await NotesRepository.updateNote(id, updateData);
 
     return sendSuccess(res, {
       statusCode: 200,
@@ -328,17 +260,18 @@ export async function updateNote(req, res, next) {
 }
 
 /**
- * Delete a note (Owner or Admin).
+ * Delete a note.
+ * Uses safe soft-delete (status = 'REMOVED') to preserve report history.
+ * Supports permanent delete if requested by admin with ?permanent=true.
  */
 export async function deleteNote(req, res, next) {
   try {
     const { id } = req.params;
+    const { permanent } = req.query;
 
-    const note = await prisma.note.findUnique({
-      where: { id }
-    });
+    const note = await NotesRepository.findNoteById(id);
 
-    if (!note) {
+    if (!note || note.status === "REMOVED") {
       return sendError(res, { statusCode: 404, message: "Note not found." });
     }
 
@@ -352,23 +285,28 @@ export async function deleteNote(req, res, next) {
       });
     }
 
-    // Delete record from database
-    await prisma.note.delete({
-      where: { id }
-    });
+    if (permanent === "true" && isAdmin) {
+      // Hard delete from database
+      await NotesRepository.deleteNotePermanently(id);
 
-    // Delete file from storage
-    if (note.fileUrl) {
-      try {
-        await StorageService.deleteFile(note.fileUrl);
-      } catch (err) {
-        console.warn("Storage deletion warning:", err.message);
+      // Clean up file from storage
+      const storageTarget = note.fileKey || note.fileUrl;
+      if (storageTarget) {
+        await StorageService.deleteFile(storageTarget);
       }
+
+      return sendSuccess(res, {
+        statusCode: 200,
+        message: "Note and associated PDF file deleted permanently."
+      });
     }
+
+    // Default safe strategy: Soft Delete
+    await NotesRepository.markNoteAsRemoved(id);
 
     return sendSuccess(res, {
       statusCode: 200,
-      message: "Note deleted successfully"
+      message: "Note removed from active listings successfully."
     });
   } catch (error) {
     next(error);
@@ -380,19 +318,7 @@ export async function deleteNote(req, res, next) {
  */
 export async function getMyNotes(req, res, next) {
   try {
-    const notes = await prisma.note.findMany({
-      where: { uploaderId: req.user.id },
-      orderBy: { createdAt: "desc" },
-      include: {
-        uploader: {
-          select: { id: true, name: true, email: true }
-        },
-        bookmarks: {
-          where: { userId: req.user.id },
-          select: { userId: true }
-        }
-      }
-    });
+    const notes = await NotesRepository.findNotesByUploader(req.user.id);
 
     return sendSuccess(res, {
       statusCode: 200,
@@ -406,37 +332,33 @@ export async function getMyNotes(req, res, next) {
 
 /**
  * Download a note and increment download counter.
+ * Returns a short-lived signed URL (60s).
  */
 export async function downloadNote(req, res, next) {
   try {
     const { id } = req.params;
 
-    const note = await prisma.note.findUnique({
-      where: { id }
-    });
+    const note = await NotesRepository.findNoteById(id);
 
-    if (!note) {
-      return sendError(res, { statusCode: 404, message: "Note not found." });
+    if (!note || note.status === "REMOVED") {
+      return sendError(res, { statusCode: 404, message: "Note not found or has been removed." });
     }
 
-    // Increment download counter atomically
-    const updated = await prisma.note.update({
-      where: { id },
-      data: {
-        downloadCount: { increment: 1 }
-      }
-    });
+    // Atomically increment download counter
+    const updated = await NotesRepository.incrementDownloadCount(id);
 
-    // Get direct/signed download URL
-    const downloadUrl = await StorageService.getDownloadUrl(note.fileUrl);
+    // Generate short-lived signed download URL (60 seconds)
+    const storageTarget = note.fileKey || note.fileUrl;
+    const downloadUrl = await StorageService.getDownloadUrl(storageTarget, 60);
 
     return sendSuccess(res, {
       statusCode: 200,
       message: "Download initiated successfully",
       data: {
         downloadUrl: downloadUrl || note.fileUrl,
-        fileName: note.fileName,
-        downloads: updated.downloadCount
+        fileName: sanitizeFileName(note.fileName),
+        downloads: updated.downloadCount,
+        expiresInSeconds: 60
       }
     });
   } catch (error) {

@@ -2,6 +2,7 @@ import multer from "multer";
 import path from "path";
 import { env } from "../config/env.js";
 import { sendError } from "../utils/response.js";
+import { isValidPdfBuffer } from "../utils/fileValidation.js";
 
 // Store uploaded files in memory buffer for streaming to Supabase Storage
 const storage = multer.memoryStorage();
@@ -32,7 +33,7 @@ const upload = multer({
 }).single("file");
 
 /**
- * Express middleware wrapper to catch Multer errors and format JSON responses.
+ * Express middleware wrapper to catch Multer errors, validate magic bytes, and format JSON responses.
  */
 export function uploadPdf(req, res, next) {
   upload(req, res, (err) => {
@@ -54,6 +55,18 @@ export function uploadPdf(req, res, next) {
         message: err.message || "File upload failed."
       });
     }
+
+    // Server-side PDF binary content verification (Magic bytes check)
+    if (req.file) {
+      if (!isValidPdfBuffer(req.file.buffer)) {
+        return sendError(res, {
+          statusCode: 400,
+          message: "Invalid file content: The uploaded file is not a valid PDF document (magic bytes signature verification failed)."
+        });
+      }
+    }
+
     next();
   });
 }
+

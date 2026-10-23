@@ -16,6 +16,7 @@ enum NoteStatus {
   PENDING
   APPROVED
   REJECTED
+  REMOVED
 }
 
 enum ReportStatus {
@@ -54,10 +55,12 @@ model Note {
   topic         String
   uploaderId    String
   uploader      User        @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  fileKey       String?
   fileName      String
   fileUrl       String
   fileSize      String
   fileType      String      @default("PDF")
+  mimeType      String      @default("application/pdf")
   downloadCount Int         @default(0)
   status        NoteStatus  @default(APPROVED)
   previewPages  Int         @default(12)

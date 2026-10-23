@@ -1,32 +1,34 @@
-import prisma from "../config/prisma.js";
+import { ReportsRepository } from "../repositories/reports.repository.js";
+import { NotesRepository } from "../repositories/notes.repository.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 
 /**
  * Submit a report for an issue with a note.
+ * Supports both body { noteId } and route parameter :id.
  */
 export async function createReport(req, res, next) {
   try {
-    const { noteId, reason, description = "" } = req.body;
+    const noteId = req.params?.id || req.body?.noteId;
+    const { reason, description = "" } = req.body;
 
-    const note = await prisma.note.findUnique({
-      where: { id: noteId }
-    });
+    if (!noteId) {
+      return sendError(res, {
+        statusCode: 400,
+        message: "Note ID is required to submit a report."
+      });
+    }
 
-    if (!note) {
+    const note = await NotesRepository.findNoteById(noteId);
+
+    if (!note || note.status === "REMOVED") {
       return sendError(res, {
         statusCode: 404,
-        message: "The note you are trying to report does not exist."
+        message: "The note you are trying to report does not exist or has been removed."
       });
     }
 
     // Prevent duplicate open reports for the exact same note by the same user
-    const existingOpenReport = await prisma.report.findFirst({
-      where: {
-        noteId,
-        reporterId: req.user.id,
-        status: "OPEN"
-      }
-    });
+    const existingOpenReport = await ReportsRepository.findExistingOpenReport(noteId, req.user.id);
 
     if (existingOpenReport) {
       return sendError(res, {
@@ -35,18 +37,11 @@ export async function createReport(req, res, next) {
       });
     }
 
-    const report = await prisma.report.create({
-      data: {
-        noteId,
-        reporterId: req.user.id,
-        reason,
-        description: description || "No additional comments provided."
-      },
-      include: {
-        note: {
-          select: { id: true, title: true }
-        }
-      }
+    const report = await ReportsRepository.createReport({
+      noteId,
+      reporterId: req.user.id,
+      reason,
+      description
     });
 
     return sendSuccess(res, {
@@ -55,12 +50,12 @@ export async function createReport(req, res, next) {
       data: {
         id: report.id,
         noteId: report.noteId,
-        noteTitle: report.note?.title || "Note",
+        noteTitle: report.note?.title || note.title,
         reason: report.reason,
         details: report.description,
         reporter: req.user.email,
         status: report.status,
-        date: report.createdAt.toISOString().split("T")[0]
+        date: report.createdAt instanceof Date ? report.createdAt.toISOString().split("T")[0] : ""
       }
     });
   } catch (error) {
@@ -73,15 +68,7 @@ export async function createReport(req, res, next) {
  */
 export async function getMyReports(req, res, next) {
   try {
-    const reports = await prisma.report.findMany({
-      where: { reporterId: req.user.id },
-      orderBy: { createdAt: "desc" },
-      include: {
-        note: {
-          select: { id: true, title: true, subject: true }
-        }
-      }
-    });
+    const reports = await ReportsRepository.getUserReports(req.user.id);
 
     return sendSuccess(res, {
       statusCode: 200,
@@ -93,7 +80,7 @@ export async function getMyReports(req, res, next) {
         reason: r.reason,
         details: r.description,
         status: r.status,
-        date: r.createdAt.toISOString().split("T")[0]
+        date: r.createdAt instanceof Date ? r.createdAt.toISOString().split("T")[0] : ""
       }))
     });
   } catch (error) {
