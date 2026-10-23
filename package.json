@@ -1,0 +1,16 @@
+{
+  "name": "notenest",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NoteNest — Full Stack Student Notes Sharing Platform",
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "npm --prefix backend run dev",
+    "build": "npm --prefix frontend run build",
+    "build:frontend": "npm --prefix frontend run build",
+    "test:backend": "npm --prefix backend test",
+    "prisma:studio": "npm --prefix backend run prisma:studio",
+    "install:all": "npm --prefix backend install && npm --prefix frontend install"
+  }
+}
